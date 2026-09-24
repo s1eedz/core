@@ -4,10 +4,15 @@ from unittest.mock import MagicMock
 
 from aidot.exceptions import AidotUserOrPassIncorrect
 
+from homeassistant.components.aidot.const import (
+    CONF_EFFECT_SOURCE,
+    EFFECT_SOURCE_RECOMMENDED,
+)
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 
 from . import async_init_integration
+from .const import TEST_EMAIL, TEST_LOGIN_RESP
 
 from tests.common import MockConfigEntry
 
@@ -40,3 +45,24 @@ async def test_async_setup_entry_auth_failed(
     await hass.async_block_till_done()
 
     assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
+
+
+async def test_async_setup_entry_passes_options_to_client(
+    hass: HomeAssistant,
+    patch_aidot_client: MagicMock,
+) -> None:
+    """Test setup passes configured options to the client."""
+    mock_config_entry = MockConfigEntry(
+        domain="aidot",
+        unique_id=TEST_LOGIN_RESP["id"],
+        title=TEST_EMAIL,
+        data=TEST_LOGIN_RESP.copy(),
+        options={CONF_EFFECT_SOURCE: EFFECT_SOURCE_RECOMMENDED},
+    )
+
+    await async_init_integration(hass, mock_config_entry)
+
+    patch_aidot_client.class_mock.assert_called_once()
+    assert patch_aidot_client.class_mock.call_args.kwargs["options"] == {
+        CONF_EFFECT_SOURCE: EFFECT_SOURCE_RECOMMENDED
+    }
