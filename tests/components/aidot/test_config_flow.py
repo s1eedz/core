@@ -3,13 +3,16 @@
 from unittest.mock import AsyncMock, MagicMock
 
 from aidot.exceptions import AidotUserOrPassIncorrect
+from aidot.models.device_model import FavoriteEffectPrimitive
 from aiohttp import ClientError
 import pytest
 
 from homeassistant.components.aidot.const import (
+    CONF_EFFECT_SELECTION,
     CONF_EFFECT_SOURCE,
     DOMAIN,
     EFFECT_SOURCE_ALL,
+    EFFECT_SOURCE_MANUAL,
     EFFECT_SOURCE_RECOMMENDED,
 )
 from homeassistant.config_entries import SOURCE_DHCP, SOURCE_USER
@@ -63,7 +66,10 @@ async def test_config_flow_cloud_login_success(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == f"{TEST_EMAIL} {TEST_COUNTRY}"
     assert result["data"] == TEST_LOGIN_RESP
-    assert result["options"] == {CONF_EFFECT_SOURCE: EFFECT_SOURCE_RECOMMENDED}
+    assert result["options"] == {
+        CONF_EFFECT_SOURCE: EFFECT_SOURCE_RECOMMENDED,
+        CONF_EFFECT_SELECTION: {},
+    }
     assert result["result"].unique_id == TEST_LOGIN_RESP["id"]
 
 
@@ -86,6 +92,12 @@ async def test_config_flow_effect_source_defaults_to_all(
 
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "effect_source"
+    assert [
+        option["value"]
+        for option in result["data_schema"]
+        .schema[next(iter(result["data_schema"].schema))]
+        .config["options"]
+    ] == [EFFECT_SOURCE_ALL, EFFECT_SOURCE_RECOMMENDED]
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
@@ -95,7 +107,10 @@ async def test_config_flow_effect_source_defaults_to_all(
     )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["options"] == {CONF_EFFECT_SOURCE: EFFECT_SOURCE_ALL}
+    assert result["options"] == {
+        CONF_EFFECT_SOURCE: EFFECT_SOURCE_ALL,
+        CONF_EFFECT_SELECTION: {},
+    }
 
 
 async def test_options_flow_updates_effect_source(
@@ -125,6 +140,90 @@ async def test_options_flow_updates_effect_source(
     coordinator.update_options.assert_called_once_with(
         {CONF_EFFECT_SOURCE: EFFECT_SOURCE_RECOMMENDED}
     )
+    mock_setup_entry.assert_not_called()
+
+
+async def test_options_flow_updates_manual_effect_selection(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_setup_entry: AsyncMock,
+) -> None:
+    """Test options flow updates manually selected effects."""
+    selected_effect = FavoriteEffectPrimitive(name="Sunrise", primitiveEffectId="p_1")
+    available_effect = FavoriteEffectPrimitive(name="Party", primitiveEffectId="p_2")
+    info = MagicMock()
+    info.name = "Test light"
+    info.presets = {"Sunrise": selected_effect}
+    coordinator = MagicMock()
+    coordinator.devices_by_id = {"device_id": {}}
+    coordinator.client.get_all_cached_effects.return_value = {
+        "Sunrise": selected_effect,
+        "Party": available_effect,
+    }
+    coordinator.device_coordinators = {
+        "device_id": MagicMock(device_client=MagicMock(info=info))
+    }
+    mock_config_entry.runtime_data = coordinator
+    mock_config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_EFFECT_SOURCE: EFFECT_SOURCE_MANUAL,
+        },
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "manual_device"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "manual_device": "device_id",
+        },
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "manual_effects"
+    assert [
+        option["value"]
+        for option in result["data_schema"]
+        .schema[next(iter(result["data_schema"].schema))]
+        .config["options"]
+    ] == ["p_1", "p_2"]
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_EFFECT_SELECTION: ["p_1", "p_2"],
+        },
+    )
+
+    assert result["type"] is FlowResultType.MENU
+    assert result["step_id"] == "manual_menu"
+    assert result["menu_options"] == [
+        "configure_another_light",
+        "finish_manual_selection",
+    ]
+    coordinator.update_options.assert_not_called()
+
+    options = {
+        CONF_EFFECT_SOURCE: EFFECT_SOURCE_MANUAL,
+        CONF_EFFECT_SELECTION: {"device_id": ["p_1", "p_2"]},
+    }
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "next_step_id": "finish_manual_selection",
+        },
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert mock_config_entry.options == options
+    coordinator.update_options.assert_called_once_with(options)
     mock_setup_entry.assert_not_called()
 
 
@@ -235,7 +334,10 @@ async def test_config_flow_errors(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"] == TEST_LOGIN_RESP
-    assert result["options"] == {CONF_EFFECT_SOURCE: EFFECT_SOURCE_ALL}
+    assert result["options"] == {
+        CONF_EFFECT_SOURCE: EFFECT_SOURCE_ALL,
+        CONF_EFFECT_SELECTION: {},
+    }
 
 
 async def test_form_abort_already_configured(
