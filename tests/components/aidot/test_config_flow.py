@@ -101,8 +101,11 @@ async def test_config_flow_effect_source_defaults_to_all(
 async def test_options_flow_updates_effect_source(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
+    mock_setup_entry: AsyncMock,
 ) -> None:
     """Test options flow updates the effect source."""
+    coordinator = MagicMock()
+    mock_config_entry.runtime_data = coordinator
     mock_config_entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
@@ -119,6 +122,10 @@ async def test_options_flow_updates_effect_source(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert mock_config_entry.options == {CONF_EFFECT_SOURCE: EFFECT_SOURCE_RECOMMENDED}
+    coordinator.update_options.assert_called_once_with(
+        {CONF_EFFECT_SOURCE: EFFECT_SOURCE_RECOMMENDED}
+    )
+    mock_setup_entry.assert_not_called()
 
 
 async def test_dhcp_discovery(hass: HomeAssistant) -> None:

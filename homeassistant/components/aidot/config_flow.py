@@ -12,7 +12,7 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlowWithReload,
+    OptionsFlow,
 )
 from homeassistant.const import CONF_COUNTRY_CODE, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import callback
@@ -72,7 +72,7 @@ def _effect_source_schema(default: str = DEFAULT_EFFECT_SOURCE) -> probatio.Sche
 EFFECT_SOURCE_SCHEMA = _effect_source_schema()
 
 
-class AidotOptionsFlowHandler(OptionsFlowWithReload):
+class AidotOptionsFlowHandler(OptionsFlow):
     """Handle Aidot options flow."""
 
     async def async_step_init(
@@ -80,6 +80,10 @@ class AidotOptionsFlowHandler(OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         """Manage Aidot options."""
         if user_input is not None:
+            if (
+                coordinator := getattr(self.config_entry, "runtime_data", None)
+            ) is not None:
+                coordinator.update_options(user_input)
             return self.async_create_entry(title="", data=user_input)
 
         return self.async_show_form(
